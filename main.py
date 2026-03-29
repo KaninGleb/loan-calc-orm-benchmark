@@ -5,7 +5,15 @@ from sqlalchemy.orm import sessionmaker
 from datetime import datetime, timezone
 import os
 
-from src import Loan, LoanInput, LoanCalculated, calculate_loan, LoanParameters
+from src import (
+    LoanApplication,
+    ApplicationInput,
+    CalculationParameters,
+    calculate_annuity_loan_limit,
+    ApplicationCalculated
+)
+
+# ЗАГРУЗКА КОНФИГУРАЦИИ
 
 load_dotenv()
 
@@ -21,70 +29,93 @@ if not DB_PASSWORD:
 DATABASE_URL = f'postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}'
 
 engine = create_engine(DATABASE_URL)
-
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
-def main():
+def update_pending_loan_applications():
+    """
+    Основная процедура расчёта кредитных заявок.
+    
+    Пайплайн обработки заявок:
+    1. Извлекаем необработанные заявки из БД.
+    2. Перебираем заявки.
+    3. Проверяем входные данные.
+    4. Производим расчёты.
+    5. Проверяем полноту объекта после расчета.
+    6. Записываем в БД через вложенные транзакции.
+    
+    Ошибки в отдельных заявках не останавливают процесс.
+    """
     with SessionLocal() as session:
         try:
-            stmt = select(Loan).where(Loan.max_loan_amount.is_(None))
-            loans = session.execute(stmt).scalars().all()
+            stmt = select(LoanApplication).where(LoanApplication.calculated_loan_limit.is_(None))
+            pending_applications = session.execute(stmt).scalars().all()
 
             print('=' * 60)
-            print(f'Found {len(loans)} uncalculated loans in database\n')
+            print(f'Found {len(pending_applications)} uncalculated loan applications in database.\n')
 
-            if not loans:
+            if not pending_applications:
                 print('Nothing to process. Exiting.')
                 print('=' * 60)
                 return
 
             updated_count = 0
 
-            for loan in loans:
-                try:
-                    valid_input = LoanInput.model_validate(loan)
+            for application in pending_applications:
+                application_id = application.id
+                application_repr = repr(application)
 
-                    params = LoanParameters(
-                        payment=valid_input.monthly_payment,
-                        annual_rate=valid_input.annual_rate,
-                        years=valid_input.years
-                    )
+                with session.begin_nested() as nested_transaction:
+                    try:
+                        valid_input = ApplicationInput.model_validate(application)
 
-                    result = calculate_loan(params)
+                        params = CalculationParameters(
+                            monthly_payment=valid_input.monthly_payment,
+                            annual_rate=valid_input.annual_rate,
+                            loan_term_years=valid_input.loan_term_years
+                        )
 
-                    validated_data = LoanCalculated(
-                        id=valid_input.id,
-                        monthly_payment=valid_input.monthly_payment,
-                        annual_rate=valid_input.annual_rate,
-                        years=valid_input.years,
-                        max_loan_amount=result.max_loan_amount,
-                        total_payment=result.total_payment,
-                        total_interest=result.total_interest,
-                        calculated_at=datetime.now(timezone.utc)
-                    )
+                        result = calculate_annuity_loan_limit(params)
 
-                    loan.max_loan_amount = validated_data.max_loan_amount
-                    loan.total_payment = validated_data.total_payment
-                    loan.total_interest = validated_data.total_interest
-                    loan.calculated_at = validated_data.calculated_at
+                        validated_data = ApplicationCalculated(
+                            id=valid_input.id,
+                            monthly_payment=valid_input.monthly_payment,
+                            annual_rate=valid_input.annual_rate,
+                            loan_term_years=valid_input.loan_term_years,
+                            calculated_loan_limit=result.calculated_loan_limit,
+                            total_repayment_amount=result.total_repayment_amount,
+                            total_interest_amount=result.total_interest_amount,
+                            calculated_at=datetime.now(timezone.utc)
+                        )
 
-                    updated_count += 1
+                        application.calculated_loan_limit = validated_data.calculated_loan_limit
+                        application.total_repayment_amount = validated_data.total_repayment_amount
 
-                except Exception as e:
-                    print(f'[ERROR] Loan #{loan.id} calculation or validation failed: {e}')
+                        # ТЕСТОВАЯ ОШИБКА
+                        if application.id == 3:
+                            raise Exception('Test calculation error')
+
+                        application.total_interest_amount = validated_data.total_interest_amount
+                        application.calculated_at = validated_data.calculated_at
+
+                        updated_count += 1
+
+                    except Exception as e:
+                        nested_transaction.rollback()
+                        print(f'[ERROR]: Failed to process Loan #{application_id}.')
+                        print(f'- Input Data: {application_repr}')
+                        print(f'- Reason: {e}\n')
 
             session.commit()
-
-            print(f'\nSuccessfully updated {updated_count}/{len(loans)} loans.')
+            print(f'Successfully updated {updated_count}/{len(pending_applications)} loan applications.')
 
         except Exception as e:
-            print(f'[CRITICAL] Database error: {type(e).__name__} - {e}')
             session.rollback()
+            print(f'[CRITICAL] Database error: {type(e).__name__} - {e}')
             raise
 
         print('=' * 60)
 
 
 if __name__ == '__main__':
-    main()
+    update_pending_loan_applications()
