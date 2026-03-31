@@ -1,6 +1,9 @@
-DROP TABLE IF EXISTS loans;
+DROP TABLE IF EXISTS loan_applications;
 
-CREATE TABLE loans (
+-- Физическая таблица кредитных заявок.
+-- Ограничения защищают БД от некорректных данных, 
+-- даже если приложение пришлет несоответствующие данные.
+CREATE TABLE loan_applications (
     id INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     monthly_payment NUMERIC(20, 2) NOT NULL
 		CONSTRAINT chk_monthly_payment_positive CHECK (monthly_payment > 0),
@@ -8,87 +11,98 @@ CREATE TABLE loans (
     annual_rate NUMERIC(5, 2) NOT NULL
 		CONSTRAINT chk_annual_rate_range CHECK (annual_rate >= 0 AND annual_rate <= 150),
 		
-    years INT NOT NULL
-		CONSTRAINT chk_years_range CHECK (years > 0 AND years <= 100),
+    loan_term_years INT NOT NULL
+		CONSTRAINT chk_loan_term_years_range CHECK (loan_term_years > 0 AND loan_term_years <= 100),
     
-    max_loan_amount NUMERIC(20, 2),
-    total_payment NUMERIC(20, 2),
-    total_interest NUMERIC(20, 2),
+    calculated_loan_limit NUMERIC(20, 2),
+    total_repayment_amount NUMERIC(20, 2),
+    total_interest_amount NUMERIC(20, 2),
     calculated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
----------------------------------------------------------
--- For testing
--- INSERT INTO loans (monthly_payment, annual_rate, years)
--- VALUES 
--- (500, 10, 15),
--- (1000, 12, 20),
--- (750, 8.5, 10),
--- (750, 12.5, 15),
--- (500, 0, 5);
-
-
--- SELECT * FROM loans;
-
--- TRUNCATE TABLE loans; 
-
--- UPDATE loans SET max_loan_amount = NULL, total_payment = NULL, total_interest = NULL;
 
 ---------------------------------------------------------
--- #1 - Slow calculations
-CREATE OR REPLACE FUNCTION slow_calculate_all_loans()
+-- ДЛЯ ТЕСТОВ
+INSERT INTO loan_applications (monthly_payment, annual_rate, loan_term_years)
+VALUES 
+(500, 10, 15),
+(1000, 12, 20),
+(750, 8.5, 10),
+(750, 12.5, 15),
+(500, 0, 5);
+
+
+SELECT * FROM loan_applications;
+
+-- TRUNCATE TABLE loan_applications; 
+
+UPDATE loan_applications 
+SET 
+calculated_loan_limit = NULL, 
+total_repayment_amount = NULL, 
+total_interest_amount = NULL;
+
+
+---------------------------------------------------------
+-- ПОСТРОЧНЫЙ РАСЧЕТ (Итеративный подход)
+-- Имитация логики приложения внутри базы.
+-- Перебираем нерассчитанные заявки в цикле и обновляем каждую отдельным запросом.
+CREATE OR REPLACE FUNCTION calculate_loan_limits_row_by_row()
 RETURNS VOID AS $$
 DECLARE
-	loan_record RECORD;
-	monthly_rate NUMERIC;
-    total_months INT;
-    max_amount NUMERIC;
-    total_payment_calc NUMERIC;
-    total_interest_calc NUMERIC;
+	current_application RECORD;
+	monthly_interest_rate NUMERIC;
+    loan_term_months INT;
+    calculated_limit NUMERIC;
+    calculated_repayment NUMERIC;
+    calculated_interest NUMERIC;
 BEGIN
-	FOR loan_record IN
-		SELECT id, monthly_payment, annual_rate, years
-		FROM loans
-		WHERE max_loan_amount IS NULL
+	FOR current_application IN
+		SELECT id, monthly_payment, annual_rate, loan_term_years
+		FROM loan_applications
+		WHERE calculated_loan_limit IS NULL
 	LOOP
-		monthly_rate := loan_record.annual_rate / 100 / 12;
-		total_months := loan_record.years * 12;
+		monthly_interest_rate := current_application.annual_rate / 100 / 12;
+		loan_term_months := current_application.loan_term_years * 12;
 
-		IF monthly_rate = 0 THEN
-			max_amount := loan_record.monthly_payment * total_months;
+		IF monthly_interest_rate = 0 THEN
+			calculated_limit := current_application.monthly_payment * loan_term_months;
 		ELSE
-			max_amount := loan_record.monthly_payment * 
-				(1 - ((1 + monthly_rate) ^ (-total_months))) / monthly_rate;
+			calculated_limit := current_application.monthly_payment * 
+				(1 - ((1 + monthly_interest_rate) ^ (-loan_term_months))) / monthly_interest_rate;
 		END IF;
 			
-		total_payment_calc := loan_record.monthly_payment * total_months;
-		total_interest_calc := total_payment_calc - max_amount;
+		calculated_repayment := current_application.monthly_payment * loan_term_months;
+		calculated_interest := calculated_repayment - calculated_limit;
 
-		UPDATE loans
-		SET max_loan_amount = ROUND(max_amount, 2),
-    		total_payment = ROUND(total_payment_calc, 2),
-    		total_interest = ROUND(total_interest_calc, 2),
+		UPDATE loan_applications
+		SET calculated_loan_limit = ROUND(calculated_limit, 2),
+    		total_repayment_amount = ROUND(calculated_repayment, 2),
+    		total_interest_amount = ROUND(calculated_interest, 2),
 			calculated_at = NOW()
-		WHERE id = loan_record.id;
+		WHERE id = current_application.id;
 	END LOOP;
 END;
 $$ LANGUAGE plpgsql;
 
 
--- SELECT slow_calculate_all_loans();
--- SELECT * FROM loans;
+SELECT calculate_loan_limits_row_by_row();
+SELECT * FROM loan_applications;
 
 
 ---------------------------------------------------------
--- #2 - Fast calculations
-CREATE OR REPLACE FUNCTION calculate_all_loans()
+-- МАССОВЫЙ РАСЧЕТ (Декларативный подход)
+-- Создаем временную виртуальную таблицу,
+-- производим все расчёты в памяти базы, а затем записываем результаты 
+-- в физическую таблицу одним массовым UPDATE.
+CREATE OR REPLACE FUNCTION calculate_loan_limits_bulk()
 RETURNS TABLE (
     processed_count INT,
     execution_time INTERVAL
 ) AS $$
 DECLARE
     v_start_time TIMESTAMPTZ;
-    v_processed INT := 0;
+    v_processed_rows_count INT := 0;
 BEGIN
 	v_start_time := clock_timestamp();
 	
@@ -96,36 +110,36 @@ BEGIN
         SELECT 
             id,
             monthly_payment,
-            years,
+            loan_term_years,
             annual_rate,
-            monthly_payment * years * 12 AS total_payment,
+            monthly_payment * loan_term_years * 12 AS total_repayment_amount,
             CASE
-                WHEN annual_rate = 0 THEN monthly_payment * years * 12
+                WHEN annual_rate = 0 THEN monthly_payment * loan_term_years * 12
                 ELSE monthly_payment * 
-                    (1 - (1 + (annual_rate / 100 / 12)) ^ -(years * 12)) / (annual_rate / 100 / 12)
-            END AS max_amount
-        FROM loans
+                    (1 - (1 + (annual_rate / 100 / 12)) ^ -(loan_term_years * 12)) / (annual_rate / 100 / 12)
+            END AS calculated_limit
+        FROM loan_applications
         WHERE 
-		max_loan_amount IS NULL
+		calculated_loan_limit IS NULL
     )
-    UPDATE loans l
+    UPDATE loan_applications l
     SET 
-        max_loan_amount = ROUND(c.max_amount, 2),
-        total_payment = ROUND(c.total_payment, 2),
-        total_interest = ROUND(c.total_payment - c.max_amount, 2),
+        calculated_loan_limit = ROUND(c.calculated_limit, 2),
+        total_repayment_amount = ROUND(c.total_repayment_amount, 2),
+        total_interest_amount = ROUND(c.total_repayment_amount - c.calculated_limit, 2),
         calculated_at = NOW()
     FROM calc c
     WHERE l.id = c.id;
 
-	GET DIAGNOSTICS v_processed = ROW_COUNT;
+	GET DIAGNOSTICS v_processed_rows_count = ROW_COUNT;
 
-	RETURN QUERY SELECT v_processed, clock_timestamp() - v_start_time;
+	RETURN QUERY SELECT v_processed_rows_count, clock_timestamp() - v_start_time;
 END;
 $$ LANGUAGE plpgsql;
 
 
--- SELECT * FROM calculate_all_loans();
--- SELECT * FROM loans;
+SELECT * FROM calculate_loan_limits_bulk();
+SELECT * FROM loan_applications;
 
 
 
