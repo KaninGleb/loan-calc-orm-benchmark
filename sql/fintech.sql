@@ -23,24 +23,24 @@ CREATE TABLE loan_applications (
 
 ---------------------------------------------------------
 -- ДЛЯ ТЕСТОВ
-INSERT INTO loan_applications (monthly_payment, annual_rate, loan_term_years)
-VALUES 
-(500, 10, 15),
-(1000, 12, 20),
-(750, 8.5, 10),
-(750, 12.5, 15),
-(500, 0, 5);
+-- INSERT INTO loan_applications (monthly_payment, annual_rate, loan_term_years)
+-- VALUES 
+-- (500, 10, 15),
+-- (1000, 12, 20),
+-- (750, 8.5, 10),
+-- (750, 12.5, 15),
+-- (500, 0, 5);
 
 
-SELECT * FROM loan_applications;
+-- SELECT * FROM loan_applications;
 
 -- TRUNCATE TABLE loan_applications; 
 
-UPDATE loan_applications 
-SET 
-calculated_loan_limit = NULL, 
-total_repayment_amount = NULL, 
-total_interest_amount = NULL;
+-- UPDATE loan_applications 
+-- SET 
+-- calculated_loan_limit = NULL, 
+-- total_repayment_amount = NULL, 
+-- total_interest_amount = NULL;
 
 
 ---------------------------------------------------------

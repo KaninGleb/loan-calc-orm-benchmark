@@ -1,4 +1,4 @@
-from .loan_calculator import calculate_annuity_loan_limit, CalculationParameters, CalculationResult
+from .annuity_calculator import calculate_annuity_loan_limit, CalculationParameters, CalculationResult
 from .models import Base, LoanApplication, ApplicationInput, ApplicationCalculated
 
 __all__ = [
