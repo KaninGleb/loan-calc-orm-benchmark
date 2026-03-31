@@ -1,12 +1,12 @@
-from .loan_calculator import calculate_loan, LoanParameters, LoanResult
-from .models import Base, Loan, LoanInput, LoanCalculated
+from .loan_calculator import calculate_annuity_loan_limit, CalculationParameters, CalculationResult
+from .models import Base, LoanApplication, ApplicationInput, ApplicationCalculated
 
 __all__ = [
-    'calculate_loan',
-    'LoanParameters',
-    'LoanResult',
+    'calculate_annuity_loan_limit',
+    'CalculationParameters',
+    'CalculationResult',
     'Base',
-    'Loan',
-    'LoanInput',
-    'LoanCalculated'
+    'LoanApplication',
+    'ApplicationInput',
+    'ApplicationCalculated'
 ]
