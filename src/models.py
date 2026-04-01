@@ -7,9 +7,11 @@ from typing import Optional
 from datetime import datetime
 
 
+# ==============================================================================
 # ЗЕРКАЛО БАЗЫ ДАННЫХ (ORM)
 # Классы описывают физическую структуру таблиц в PostgreSQL.
 # Используются SQLAlchemy для генерации SQL-запросов под капотом.
+# ==============================================================================
 
 class Base(DeclarativeBase):
     pass
@@ -36,10 +38,12 @@ class LoanApplication(Base):
         return f'<LoanApplication(id={self.id}, payment={self.monthly_payment}, rate={self.annual_rate}%, years={self.loan_term_years})>'
 
 
+# ==============================================================================
 # Pydantic DTO (Data Transfer Objects).
 # Модели для строгого контроля данных в памяти Питона.
 # Гарантируют, что расчет не начнется с неверными типами (ApplicationInput),
 # и что в базу не запишется неполный результат (ApplicationCalculated).
+# ==============================================================================
 
 class ApplicationInput(BaseModel):
     """

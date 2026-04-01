@@ -1,8 +1,11 @@
 DROP TABLE IF EXISTS loan_applications;
 
+-- =============================================================================
 -- Физическая таблица кредитных заявок.
 -- Ограничения защищают БД от некорректных данных, 
 -- даже если приложение пришлет несоответствующие данные.
+-- =============================================================================
+
 CREATE TABLE loan_applications (
     id INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     monthly_payment NUMERIC(20, 2) NOT NULL
@@ -21,8 +24,10 @@ CREATE TABLE loan_applications (
 );
 
 
----------------------------------------------------------
+-- =============================================================================
 -- ДЛЯ ТЕСТОВ
+-- =============================================================================
+
 -- INSERT INTO loan_applications (monthly_payment, annual_rate, loan_term_years)
 -- VALUES 
 -- (500, 10, 15),
@@ -30,7 +35,6 @@ CREATE TABLE loan_applications (
 -- (750, 8.5, 10),
 -- (750, 12.5, 15),
 -- (500, 0, 5);
-
 
 -- SELECT * FROM loan_applications;
 
@@ -43,10 +47,12 @@ CREATE TABLE loan_applications (
 -- total_interest_amount = NULL;
 
 
----------------------------------------------------------
+-- =============================================================================
 -- ПОСТРОЧНЫЙ РАСЧЕТ (Итеративный подход)
 -- Имитация логики приложения внутри базы.
 -- Перебираем нерассчитанные заявки в цикле и обновляем каждую отдельным запросом.
+-- =============================================================================
+
 CREATE OR REPLACE FUNCTION calculate_loan_limits_row_by_row()
 RETURNS VOID AS $$
 DECLARE
@@ -71,7 +77,7 @@ BEGIN
 			calculated_limit := current_application.monthly_payment * 
 				(1 - ((1 + monthly_interest_rate) ^ (-loan_term_months))) / monthly_interest_rate;
 		END IF;
-			
+
 		calculated_repayment := current_application.monthly_payment * loan_term_months;
 		calculated_interest := calculated_repayment - calculated_limit;
 
@@ -90,11 +96,13 @@ SELECT calculate_loan_limits_row_by_row();
 SELECT * FROM loan_applications;
 
 
----------------------------------------------------------
+-- =============================================================================
 -- МАССОВЫЙ РАСЧЕТ (Декларативный подход)
 -- Создаем временную виртуальную таблицу,
 -- производим все расчёты в памяти базы, а затем записываем результаты 
 -- в физическую таблицу одним массовым UPDATE.
+-- =============================================================================
+
 CREATE OR REPLACE FUNCTION calculate_loan_limits_bulk()
 RETURNS TABLE (
     processed_count INT,
@@ -119,8 +127,7 @@ BEGIN
                     (1 - (1 + (annual_rate / 100 / 12)) ^ -(loan_term_years * 12)) / (annual_rate / 100 / 12)
             END AS calculated_limit
         FROM loan_applications
-        WHERE 
-		calculated_loan_limit IS NULL
+        WHERE calculated_loan_limit IS NULL
     )
     UPDATE loan_applications l
     SET 

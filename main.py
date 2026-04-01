@@ -13,7 +13,9 @@ from src import (
     ApplicationCalculated
 )
 
+# ==============================================================================
 # ЗАГРУЗКА КОНФИГУРАЦИИ
+# ==============================================================================
 
 load_dotenv()
 
@@ -91,7 +93,9 @@ def update_pending_loan_applications():
                         application.calculated_loan_limit = validated_data.calculated_loan_limit
                         application.total_repayment_amount = validated_data.total_repayment_amount
 
+                        # =====================================================
                         # ТЕСТОВАЯ ОШИБКА
+                        # =====================================================
                         # if application.id == 3:
                         #     raise Exception('Test calculation error')
 
