@@ -1,10 +1,7 @@
-from dotenv import load_dotenv
-from sqlalchemy import create_engine, select
-from sqlalchemy.orm import sessionmaker
-
+from sqlalchemy import select
 from datetime import datetime, timezone
-import os
 
+from src.database import SessionLocal
 from src import (
     LoanApplication,
     ApplicationInput,
@@ -12,26 +9,6 @@ from src import (
     calculate_annuity_loan_limit,
     ApplicationCalculated
 )
-
-# ==============================================================================
-# ЗАГРУЗКА КОНФИГУРАЦИИ
-# ==============================================================================
-
-load_dotenv()
-
-DB_USER = os.getenv('DB_USER', 'postgres')
-DB_PASSWORD = os.getenv('DB_PASSWORD')
-DB_HOST = os.getenv('DB_HOST', 'localhost')
-DB_PORT = os.getenv('DB_PORT', '5432')
-DB_NAME = os.getenv('DB_NAME', 'fintech')
-
-if not DB_PASSWORD:
-    raise ValueError('DB_PASSWORD not found! Create .env file')
-
-DATABASE_URL = f'postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}'
-
-engine = create_engine(DATABASE_URL)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
 def update_pending_loan_applications():
