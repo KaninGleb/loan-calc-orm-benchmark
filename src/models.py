@@ -35,7 +35,12 @@ class LoanApplication(Base):
     calculated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     def __repr__(self):
-        return f'<LoanApplication(id={self.id}, payment={self.monthly_payment}, rate={self.annual_rate}%, years={self.loan_term_years})>'
+        return (
+            f'<LoanApplication(id={self.id}, '
+            f'payment={self.monthly_payment}, '
+            f'rate={self.annual_rate}%, '
+            f'years={self.loan_term_years})>'
+        )
 
 
 # ==============================================================================
